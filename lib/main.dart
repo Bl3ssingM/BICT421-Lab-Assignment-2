@@ -21,7 +21,8 @@ class _YummyState extends State<Yummy> {
   void changeThemeMode(bool useLightMode) {
     setState(() {
       themeMode = useLightMode
-          ? ThemeMode.light //
+          ? ThemeMode
+                .light //
           : ThemeMode.dark;
     });
   }
