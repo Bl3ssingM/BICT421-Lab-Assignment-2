@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 import 'components/category_card.dart';
 import 'components/post_card.dart';
 import 'components/restaurant_landscape_card.dart';
 import 'constants.dart';
+import 'models/auth.dart';
 import 'models/food_category.dart';
 import 'models/post.dart';
 import 'models/restaurant.dart';
@@ -59,25 +61,44 @@ class Home extends StatefulWidget {
     required this.changeTheme,
     required this.changeColor,
     required this.colorSelected,
-    required this.appTitle,
+    required this.auth,
+    this.onCheckout,        // ← NEW: called when user proceeds to checkout
+    this.appTitle = 'Yummy',
   });
 
   final ColorSelection colorSelected;
   final void Function(bool useLightMode) changeTheme;
   final void Function(int value) changeColor;
+  final Auth auth;
+  final void Function(Map<Item, int> cartItems)? onCheckout; // ← NEW
   final String appTitle;
 
   @override
   State<Home> createState() => _HomeState();
 }
 
-class _HomeState extends State<Home> {
-  int tab = 0;
+class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
+  // ── CHANGED: TabController replaces the old `int tab` state ──────────────
+  late TabController _tabController;
+
   FoodCategory? selectedCategory;
   final Map<Item, int> cartItems = {};
   final List<Item> likedItems = [];
   final List<Restaurant> likedRestaurants = [];
   final ScrollController _categoryScrollController = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    _tabController = TabController(length: 3, vsync: this);
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    _categoryScrollController.dispose();
+    super.dispose();
+  }
 
   bool _isItemLiked(Item item) => likedItems.contains(item);
 
@@ -128,8 +149,8 @@ class _HomeState extends State<Home> {
                   Text(
                     'Choose how many servings to add to your order.',
                     style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: Colors.grey.shade600,
-                    ),
+                          color: Colors.grey.shade600,
+                        ),
                   ),
                   const SizedBox(height: 16.0),
                   Row(
@@ -183,9 +204,17 @@ class _HomeState extends State<Home> {
         context,
         'Added x$quantity ${item.name} to cart',
         actionLabel: 'View cart',
-        onAction: _showCartBottomSheet,
+        onAction: _openCartFromSnackBar,
       ),
     );
+  }
+
+  void _openCartFromSnackBar() {
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _showCartBottomSheet();
+    });
   }
 
   List<Restaurant> _recommendedRestaurants() {
@@ -279,6 +308,13 @@ class _HomeState extends State<Home> {
               cartItems: cartItems,
               emptyMessage: 'Your cart is empty.',
               scrollController: scrollController,
+              // ── NEW: wire checkout to parent callback ─────────────────
+              onCheckout: widget.onCheckout == null
+                  ? null
+                  : () {
+                      widget.onCheckout!(Map.from(cartItems));
+                      setState(() => cartItems.clear()); // clear after order
+                    },
             );
           },
         );
@@ -309,7 +345,11 @@ class _HomeState extends State<Home> {
       children: [
         IconButton(
           icon: Badge(
-            label: Text('${likedItems.length}'),
+            label: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 250),
+              transitionBuilder: (child, animation) => ScaleTransition(scale: animation, child: child),
+              child: Text('${likedItems.length}', key: ValueKey(likedItems.length)),
+            ),
             child: const Icon(Icons.favorite_border),
           ),
           tooltip: 'Liked items',
@@ -317,7 +357,11 @@ class _HomeState extends State<Home> {
         ),
         IconButton(
           icon: Badge(
-            label: Text('${likedRestaurants.length}'),
+            label: AnimatedSwitcher(
+              duration: const Duration(milliseconds: 250),
+              transitionBuilder: (child, animation) => ScaleTransition(scale: animation, child: child),
+              child: Text('${likedRestaurants.length}', key: ValueKey(likedRestaurants.length)),
+            ),
             child: const Icon(Icons.restaurant),
           ),
           tooltip: 'Favorite restaurants',
@@ -367,10 +411,23 @@ class _HomeState extends State<Home> {
                   ),
                 );
               }),
+              const PopupMenuDivider(),
+              PopupMenuItem<int>(
+                value: -1,
+                child: ListTile(
+                  leading: Icon(Icons.logout_rounded,
+                      color: Theme.of(context).colorScheme.error),
+                  title: Text('Log out',
+                      style: TextStyle(
+                          color: Theme.of(context).colorScheme.error)),
+                ),
+              ),
             ];
           },
           onSelected: (value) {
-            if (value == 0) {
+            if (value == -1) {
+              widget.auth.signOut().then((_) => context.go('/login'));
+            } else if (value == 0) {
               widget.changeTheme(!isBright);
             } else {
               widget.changeColor(value - 1);
@@ -382,15 +439,9 @@ class _HomeState extends State<Home> {
   }
 
   @override
-  void dispose() {
-    _categoryScrollController.dispose();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
     final pages = [
-      // Display all categories or restaurants for selected category
+      // ── Category tab ──────────────────────────────────────────────────────
       selectedCategory == null
           ? Center(
               child: ConstrainedBox(
@@ -403,20 +454,14 @@ class _HomeState extends State<Home> {
                   itemBuilder: (context, index) {
                     final category = categories[index];
                     final count = restaurants
-                        .where(
-                          (r) => r.attributes.toLowerCase().contains(
-                            category.name.toLowerCase(),
-                          ),
-                        )
+                        .where((r) => r.attributes.toLowerCase().contains(
+                              category.name.toLowerCase(),
+                            ))
                         .length;
                     return CategoryCard(
                       category: category,
                       restaurantCount: count,
-                      onTap: () {
-                        setState(() {
-                          selectedCategory = category;
-                        });
-                      },
+                      onTap: () => setState(() => selectedCategory = category),
                     );
                   },
                 ),
@@ -425,21 +470,16 @@ class _HomeState extends State<Home> {
           : Builder(
               builder: (context) {
                 final matchingRestaurants = restaurants
-                    .where(
-                      (r) => r.attributes.toLowerCase().contains(
-                        selectedCategory!.name.toLowerCase(),
-                      ),
-                    )
+                    .where((r) => r.attributes.toLowerCase().contains(
+                          selectedCategory!.name.toLowerCase(),
+                        ))
                     .toList();
                 return Scaffold(
                   appBar: AppBar(
                     leading: IconButton(
                       icon: const Icon(Icons.arrow_back),
-                      onPressed: () {
-                        setState(() {
-                          selectedCategory = null;
-                        });
-                      },
+                      onPressed: () =>
+                          setState(() => selectedCategory = null),
                     ),
                     title: Text(selectedCategory!.name),
                     automaticallyImplyLeading: false,
@@ -448,18 +488,15 @@ class _HomeState extends State<Home> {
                       ? Center(
                           child: Padding(
                             padding: const EdgeInsets.symmetric(
-                              horizontal: 24.0,
-                            ),
+                                horizontal: 24.0),
                             child: Column(
                               mainAxisAlignment: MainAxisAlignment.center,
                               crossAxisAlignment: CrossAxisAlignment.center,
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Icon(
-                                  Icons.hourglass_empty,
-                                  size: 64,
-                                  color: Colors.grey.shade400,
-                                ),
+                                Icon(Icons.hourglass_empty,
+                                    size: 64,
+                                    color: Colors.grey.shade400),
                                 const SizedBox(height: 24),
                                 Text(
                                   'No places yet',
@@ -467,16 +504,18 @@ class _HomeState extends State<Home> {
                                       .textTheme
                                       .headlineSmall
                                       ?.copyWith(
-                                        color: Colors.grey.shade700,
-                                        fontWeight: FontWeight.bold,
-                                      ),
+                                          color: Colors.grey.shade700,
+                                          fontWeight: FontWeight.bold),
                                   textAlign: TextAlign.center,
                                 ),
                                 const SizedBox(height: 8),
                                 Text(
                                   'Coming soon!',
-                                  style: Theme.of(context).textTheme.bodyLarge
-                                      ?.copyWith(color: Colors.grey.shade600),
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodyLarge
+                                      ?.copyWith(
+                                          color: Colors.grey.shade600),
                                   textAlign: TextAlign.center,
                                 ),
                               ],
@@ -485,19 +524,17 @@ class _HomeState extends State<Home> {
                         )
                       : ListView(
                           children: matchingRestaurants
-                              .map(
-                                (restaurant) => RestaurantLandscapeCard(
-                                  restaurant: restaurant,
-                                  onTap: () =>
-                                      _openRestaurantDetail(restaurant),
-                                ),
-                              )
+                              .map((r) => RestaurantLandscapeCard(
+                                    restaurant: r,
+                                    onTap: () => _openRestaurantDetail(r),
+                                  ))
                               .toList(),
                         ),
                 );
               },
             ),
-      // Display all posts
+
+      // ── Post tab ──────────────────────────────────────────────────────────
       Center(
         child: Padding(
           padding: const EdgeInsets.all(16.0),
@@ -508,7 +545,8 @@ class _HomeState extends State<Home> {
           ),
         ),
       ),
-      // Display all restaurants
+
+      // ── Restaurant tab ────────────────────────────────────────────────────
       Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 400),
@@ -518,21 +556,19 @@ class _HomeState extends State<Home> {
               if (_recommendedRestaurants().isNotEmpty) ...[
                 Padding(
                   padding: const EdgeInsets.symmetric(
-                    horizontal: 16.0,
-                    vertical: 20.0,
-                  ),
-                  child: Text(
-                    'Recommended for you',
-                    style: Theme.of(context).textTheme.headlineSmall,
-                  ),
+                      horizontal: 16.0, vertical: 20.0),
+                  child: Text('Recommended for you',
+                      style: Theme.of(context).textTheme.headlineSmall),
                 ),
                 SizedBox(
                   height: 240,
                   child: ListView.separated(
                     scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 16.0),
                     itemCount: _recommendedRestaurants().length,
-                    separatorBuilder: (_, _) => const SizedBox(width: 12.0),
+                    separatorBuilder: (_, _) =>
+                        const SizedBox(width: 12.0),
                     itemBuilder: (context, index) {
                       final restaurant = _recommendedRestaurants()[index];
                       return SizedBox(
@@ -549,9 +585,9 @@ class _HomeState extends State<Home> {
                 const SizedBox(height: 20),
               ],
               ...restaurants.map(
-                (restaurant) => RestaurantLandscapeCard(
-                  restaurant: restaurant,
-                  onTap: () => _openRestaurantDetail(restaurant),
+                (r) => RestaurantLandscapeCard(
+                  restaurant: r,
+                  onTap: () => _openRestaurantDetail(r),
                 ),
               ),
             ],
@@ -560,6 +596,8 @@ class _HomeState extends State<Home> {
       ),
     ];
 
+    // TabBar moved into the body so Category/Post/Restaurant
+    // appears inside Explore content, not in the AppBar.
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.appTitle),
@@ -567,40 +605,34 @@ class _HomeState extends State<Home> {
         backgroundColor: Theme.of(context).colorScheme.surface,
         actions: [_buildHeaderActions(context)],
       ),
-      body: AnimatedSwitcher(
-        duration: const Duration(milliseconds: 350),
-        switchInCurve: Curves.easeOutQuint,
-        switchOutCurve: Curves.easeInQuint,
-        child: KeyedSubtree(key: ValueKey(tab), child: pages[tab]),
-      ),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: tab,
-        onDestinationSelected: (index) {
-          setState(() {
-            tab = index;
-          });
-        },
-        destinations: const [
-          NavigationDestination(
-            icon: Icon(Icons.category_outlined),
-            selectedIcon: Icon(Icons.category),
-            label: 'Category',
+      body: Column(
+        children: [
+          // Category / Post / Restaurant selector sits at the top of the body
+          TabBar(
+            controller: _tabController,
+            tabs: const [
+              Tab(icon: Icon(Icons.category_outlined), text: 'Category'),
+              Tab(icon: Icon(Icons.article_outlined), text: 'Post'),
+              Tab(
+                  icon: Icon(Icons.restaurant_menu_outlined),
+                  text: 'Restaurant'),
+            ],
           ),
-          NavigationDestination(
-            icon: Icon(Icons.article_outlined),
-            selectedIcon: Icon(Icons.article),
-            label: 'Post',
-          ),
-          NavigationDestination(
-            icon: Icon(Icons.restaurant_menu_outlined),
-            selectedIcon: Icon(Icons.restaurant_menu),
-            label: 'Restaurant',
+          // Tab content fills the rest of the space
+          Expanded(
+            child: TabBarView(
+              controller: _tabController,
+              children: pages,
+            ),
           ),
         ],
       ),
+      // No bottom NavigationBar — MainShell provides Explore/Orders/Account
     );
   }
 }
+
+// ── All classes below are COMPLETELY UNCHANGED ────────────────────────────────
 
 class RestaurantDetailPage extends StatefulWidget {
   final Restaurant restaurant;
@@ -637,22 +669,22 @@ class _RestaurantDetailPageState extends State<RestaurantDetailPage> {
 
   void _toggleRestaurantLike() {
     widget.onRestaurantLikeToggle(widget.restaurant);
-    setState(() {
-      _restaurantLiked = !_restaurantLiked;
-    });
+    setState(() => _restaurantLiked = !_restaurantLiked);
   }
 
   void _submitRating(int rating) {
     setState(() {
       _selectedRating = rating;
       _ratingSubmitted = true;
-      widget.restaurant.rating = (widget.restaurant.rating + rating) / 2.0;
+      widget.restaurant.rating =
+          (widget.restaurant.rating + rating) / 2.0;
       widget.restaurant.reviews.insert(
         0,
         Review(
           reviewer: 'You',
           rating: rating,
-          comment: 'Delicious meal with great service — highly recommended!',
+          comment:
+              'Delicious meal with great service — highly recommended!',
         ),
       );
     });
@@ -669,18 +701,17 @@ class _RestaurantDetailPageState extends State<RestaurantDetailPage> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final textTheme = theme.textTheme.apply(
-      displayColor: theme.colorScheme.onSurface,
-    );
+    final textTheme =
+        theme.textTheme.apply(displayColor: theme.colorScheme.onSurface);
 
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.restaurant.name),
         actions: [
           IconButton(
-            icon: Icon(
-              _restaurantLiked ? Icons.favorite : Icons.favorite_border,
-            ),
+            icon: Icon(_restaurantLiked
+                ? Icons.favorite
+                : Icons.favorite_border),
             onPressed: _toggleRestaurantLike,
           ),
         ],
@@ -692,16 +723,15 @@ class _RestaurantDetailPageState extends State<RestaurantDetailPage> {
             tag: 'restaurant-${widget.restaurant.id}',
             child: ClipRRect(
               borderRadius: BorderRadius.circular(16.0),
-              child: Image.asset(widget.restaurant.imageUrl, fit: BoxFit.cover),
+              child: Image.asset(widget.restaurant.imageUrl,
+                  fit: BoxFit.cover),
             ),
           ),
           const SizedBox(height: 16.0),
           Text(widget.restaurant.address, style: textTheme.bodyMedium),
           const SizedBox(height: 8.0),
-          Text(
-            widget.restaurant.getRatingAndDistance(),
-            style: textTheme.bodySmall,
-          ),
+          Text(widget.restaurant.getRatingAndDistance(),
+              style: textTheme.bodySmall),
           const SizedBox(height: 16.0),
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -710,18 +740,18 @@ class _RestaurantDetailPageState extends State<RestaurantDetailPage> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('Rate this place', style: textTheme.titleMedium),
+                    Text('Rate this place',
+                        style: textTheme.titleMedium),
                     const SizedBox(height: 8.0),
                     Row(
                       mainAxisSize: MainAxisSize.min,
                       children: List.generate(5, (index) {
                         final value = index + 1;
-                        final currentRating = _selectedRating;
                         return IconButton(
                           padding: EdgeInsets.zero,
                           constraints: const BoxConstraints(),
                           icon: Icon(
-                            value <= currentRating
+                            value <= _selectedRating
                                 ? Icons.star
                                 : Icons.star_border,
                             color: Colors.amber,
@@ -741,9 +771,8 @@ class _RestaurantDetailPageState extends State<RestaurantDetailPage> {
               padding: const EdgeInsets.symmetric(vertical: 8.0),
               child: Text(
                 'Thanks! Your rating helps personalize recommendations.',
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: theme.colorScheme.primary,
-                ),
+                style: theme.textTheme.bodyMedium
+                    ?.copyWith(color: theme.colorScheme.primary),
               ),
             ),
           const SizedBox(height: 24.0),
@@ -759,26 +788,22 @@ class _RestaurantDetailPageState extends State<RestaurantDetailPage> {
                   children: [
                     ClipRRect(
                       borderRadius: BorderRadius.circular(12.0),
-                      child: Image.asset(
-                        item.imageUrl,
-                        width: 90,
-                        height: 90,
-                        fit: BoxFit.cover,
-                      ),
+                      child: Image.asset(item.imageUrl,
+                          width: 90, height: 90, fit: BoxFit.cover),
                     ),
                     const SizedBox(width: 12.0),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(item.name, style: textTheme.titleMedium),
+                          Text(item.name,
+                              style: textTheme.titleMedium),
                           const SizedBox(height: 6.0),
-                          Text(item.description, style: textTheme.bodySmall),
+                          Text(item.description,
+                              style: textTheme.bodySmall),
                           const SizedBox(height: 8.0),
-                          Text(
-                            _formatZar(item.price),
-                            style: textTheme.bodyMedium,
-                          ),
+                          Text(_formatZar(item.price),
+                              style: textTheme.bodyMedium),
                         ],
                       ),
                     ),
@@ -794,7 +819,8 @@ class _RestaurantDetailPageState extends State<RestaurantDetailPage> {
                           onPressed: () => _toggleItemLike(item),
                         ),
                         ElevatedButton(
-                          onPressed: () => widget.onBuyRequested(item),
+                          onPressed: () =>
+                              widget.onBuyRequested(item),
                           child: const Text('Buy'),
                         ),
                       ],
@@ -810,14 +836,11 @@ class _RestaurantDetailPageState extends State<RestaurantDetailPage> {
           if (widget.restaurant.reviews.isEmpty)
             Text(
               'No reviews yet. Tap a star to leave the first review.',
-              style: textTheme.bodyMedium?.copyWith(
-                color: Colors.grey.shade600,
-              ),
+              style: textTheme.bodyMedium
+                  ?.copyWith(color: Colors.grey.shade600),
             )
           else
-            ...widget.restaurant.reviews
-                .take(3)
-                .map(
+            ...widget.restaurant.reviews.take(3).map(
                   (review) => Padding(
                     padding: const EdgeInsets.symmetric(vertical: 8.0),
                     child: Column(
@@ -825,18 +848,17 @@ class _RestaurantDetailPageState extends State<RestaurantDetailPage> {
                       children: [
                         Row(
                           children: [
-                            Text(review.reviewer, style: textTheme.titleSmall),
+                            Text(review.reviewer,
+                                style: textTheme.titleSmall),
                             const SizedBox(width: 8.0),
-                            Text(
-                              '${review.rating} ★',
-                              style: textTheme.bodyMedium?.copyWith(
-                                color: Colors.amber.shade700,
-                              ),
-                            ),
+                            Text('${review.rating} ★',
+                                style: textTheme.bodyMedium?.copyWith(
+                                    color: Colors.amber.shade700)),
                           ],
                         ),
                         const SizedBox(height: 6.0),
-                        Text(review.comment, style: textTheme.bodySmall),
+                        Text(review.comment,
+                            style: textTheme.bodySmall),
                         const Divider(height: 20.0),
                       ],
                     ),
@@ -863,12 +885,14 @@ class _ItemListSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 24.0),
+      padding:
+          const EdgeInsets.symmetric(horizontal: 16.0, vertical: 24.0),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(title, style: Theme.of(context).textTheme.headlineSmall),
+          Text(title,
+              style: Theme.of(context).textTheme.headlineSmall),
           const SizedBox(height: 12.0),
           if (items.isEmpty)
             Padding(
@@ -877,24 +901,21 @@ class _ItemListSheet extends StatelessWidget {
                 child: Text(
                   emptyMessage,
                   textAlign: TextAlign.center,
-                  style: Theme.of(
-                    context,
-                  ).textTheme.bodyMedium?.copyWith(color: Colors.grey.shade600),
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: Colors.grey.shade600,
+                      ),
                 ),
               ),
             )
           else
             ...items.map(
               (item) => ListTile(
-                contentPadding: const EdgeInsets.symmetric(vertical: 4.0),
+                contentPadding:
+                    const EdgeInsets.symmetric(vertical: 4.0),
                 leading: ClipRRect(
                   borderRadius: BorderRadius.circular(8.0),
-                  child: Image.asset(
-                    item.imageUrl,
-                    width: 52,
-                    height: 52,
-                    fit: BoxFit.cover,
-                  ),
+                  child: Image.asset(item.imageUrl,
+                      width: 52, height: 52, fit: BoxFit.cover),
                 ),
                 title: Text(item.name),
                 subtitle: Text(_formatZar(item.price)),
@@ -921,12 +942,14 @@ class _RestaurantListSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 24.0),
+      padding:
+          const EdgeInsets.symmetric(horizontal: 16.0, vertical: 24.0),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(title, style: Theme.of(context).textTheme.headlineSmall),
+          Text(title,
+              style: Theme.of(context).textTheme.headlineSmall),
           const SizedBox(height: 12.0),
           if (restaurants.isEmpty)
             Padding(
@@ -935,24 +958,21 @@ class _RestaurantListSheet extends StatelessWidget {
                 child: Text(
                   emptyMessage,
                   textAlign: TextAlign.center,
-                  style: Theme.of(
-                    context,
-                  ).textTheme.bodyMedium?.copyWith(color: Colors.grey.shade600),
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: Colors.grey.shade600,
+                      ),
                 ),
               ),
             )
           else
             ...restaurants.map(
               (restaurant) => ListTile(
-                contentPadding: const EdgeInsets.symmetric(vertical: 4.0),
+                contentPadding:
+                    const EdgeInsets.symmetric(vertical: 4.0),
                 leading: ClipRRect(
                   borderRadius: BorderRadius.circular(8.0),
-                  child: Image.asset(
-                    restaurant.imageUrl,
-                    width: 52,
-                    height: 52,
-                    fit: BoxFit.cover,
-                  ),
+                  child: Image.asset(restaurant.imageUrl,
+                      width: 52, height: 52, fit: BoxFit.cover),
                 ),
                 title: Text(restaurant.name),
                 subtitle: Text(restaurant.attributes),
@@ -970,22 +990,23 @@ class _CartListSheet extends StatelessWidget {
   final Map<Item, int> cartItems;
   final String emptyMessage;
   final ScrollController? scrollController;
+  final VoidCallback? onCheckout; // ← NEW
 
   const _CartListSheet({
     required this.title,
     required this.cartItems,
     required this.emptyMessage,
     this.scrollController,
+    this.onCheckout,        // ← NEW
   });
 
   @override
   Widget build(BuildContext context) {
     final entries = cartItems.entries.toList();
-    final totalItems = entries.fold<int>(0, (sum, entry) => sum + entry.value);
+    final totalItems =
+        entries.fold<int>(0, (sum, entry) => sum + entry.value);
     final totalPrice = entries.fold<double>(
-      0.0,
-      (sum, entry) => sum + entry.key.price * entry.value,
-    );
+        0.0, (sum, entry) => sum + entry.key.price * entry.value);
 
     return SingleChildScrollView(
       controller: scrollController,
@@ -999,7 +1020,8 @@ class _CartListSheet extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(title, style: Theme.of(context).textTheme.headlineSmall),
+            Text(title,
+                style: Theme.of(context).textTheme.headlineSmall),
             const SizedBox(height: 12.0),
             if (entries.isEmpty) ...[
               Padding(
@@ -1008,29 +1030,26 @@ class _CartListSheet extends StatelessWidget {
                   child: Text(
                     emptyMessage,
                     textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: Colors.grey.shade600,
-                    ),
+                    style: Theme.of(context)
+                        .textTheme
+                        .bodyMedium
+                        ?.copyWith(color: Colors.grey.shade600),
                   ),
                 ),
               ),
             ] else ...[
               ...entries.map(
                 (entry) => ListTile(
-                  contentPadding: const EdgeInsets.symmetric(vertical: 4.0),
+                  contentPadding:
+                      const EdgeInsets.symmetric(vertical: 4.0),
                   leading: ClipRRect(
                     borderRadius: BorderRadius.circular(8.0),
-                    child: Image.asset(
-                      entry.key.imageUrl,
-                      width: 52,
-                      height: 52,
-                      fit: BoxFit.cover,
-                    ),
+                    child: Image.asset(entry.key.imageUrl,
+                        width: 52, height: 52, fit: BoxFit.cover),
                   ),
                   title: Text(entry.key.name),
                   subtitle: Text(
-                    'x${entry.value}  •  ${_formatZar(entry.key.price * entry.value)}',
-                  ),
+                      'x${entry.value}  •  ${_formatZar(entry.key.price * entry.value)}'),
                   trailing: Text('Qty ${entry.value}'),
                 ),
               ),
@@ -1040,37 +1059,44 @@ class _CartListSheet extends StatelessWidget {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text('Items', style: Theme.of(context).textTheme.bodyMedium),
-                  Text(
-                    '$totalItems',
-                    style: Theme.of(context).textTheme.bodyMedium,
-                  ),
+                  Text('Items',
+                      style:
+                          Theme.of(context).textTheme.bodyMedium),
+                  Text('$totalItems',
+                      style:
+                          Theme.of(context).textTheme.bodyMedium),
                 ],
               ),
               const SizedBox(height: 8.0),
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text('Total', style: Theme.of(context).textTheme.titleMedium),
-                  Text(
-                    _formatZar(totalPrice),
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
+                  Text('Total',
+                      style:
+                          Theme.of(context).textTheme.titleMedium),
+                  Text(_formatZar(totalPrice),
+                      style:
+                          Theme.of(context).textTheme.titleMedium),
                 ],
               ),
               const SizedBox(height: 20.0),
               ElevatedButton(
                 style: ElevatedButton.styleFrom(
-                  minimumSize: const Size.fromHeight(48),
-                ),
+                    minimumSize: const Size.fromHeight(48)),
                 onPressed: () {
+                  ScaffoldMessenger.of(context).clearSnackBars();
                   Navigator.of(context).pop();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    buildModernSnackBar(
-                      context,
-                      'Checkout isn\'t active yet, but your order is ready.',
-                    ),
-                  );
+                  if (onCheckout != null) {
+                    // ── NEW: send order to MainShell → Orders tab ────
+                    onCheckout!();
+                  } else {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      buildModernSnackBar(
+                        context,
+                        'Checkout isn\'t active yet, but your order is ready.',
+                      ),
+                    );
+                  }
                 },
                 child: const Text('Proceed to checkout'),
               ),
@@ -1078,9 +1104,9 @@ class _CartListSheet extends StatelessWidget {
               Text(
                 'Estimated delivery: 15-20 min',
                 textAlign: TextAlign.center,
-                style: Theme.of(
-                  context,
-                ).textTheme.bodySmall?.copyWith(color: Colors.grey.shade600),
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Colors.grey.shade600,
+                    ),
               ),
             ],
             const SizedBox(height: 16.0),
