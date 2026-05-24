@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 import 'dart:convert';
-
-import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter/services.dart';
@@ -115,8 +113,10 @@ class _AccountPageState extends State<AccountPage> {
   Future<void> _clearAccount() async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.clear();
+    final onLogOut = widget.onLogOut;
     await widget.auth.signOut();
-    if (mounted) widget.onLogOut();
+    if (!mounted) return;
+    onLogOut();
   }
 
   @override

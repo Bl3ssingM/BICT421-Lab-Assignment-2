@@ -31,7 +31,32 @@ class CategoryCard extends StatelessWidget {
                   borderRadius: const BorderRadius.vertical(
                     top: Radius.circular(8.0),
                   ),
-                  child: Image.asset(category.imageUrl),
+                  // ── ONLY CHANGE: detect network URL vs local asset ────────
+                  child: category.imageUrl.startsWith('http')
+                      ? Image.network(
+                          category.imageUrl,
+                          fit: BoxFit.cover,
+                          width: double.infinity,
+                          height: 180,
+                          loadingBuilder: (context, child, progress) {
+                            if (progress == null) return child;
+                            return const SizedBox(
+                              height: 180,
+                              child: Center(
+                                child: CircularProgressIndicator(),
+                              ),
+                            );
+                          },
+                          errorBuilder: (context, _, __) => const SizedBox(
+                            height: 180,
+                            child: Center(
+                              child: Icon(Icons.broken_image_outlined,
+                                  size: 48),
+                            ),
+                          ),
+                        )
+                      : Image.asset(category.imageUrl),
+                  // ─────────────────────────────────────────────────────────
                 ),
                 Positioned(
                   left: 16.0,

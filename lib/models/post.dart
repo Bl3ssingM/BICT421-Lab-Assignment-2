@@ -12,7 +12,31 @@ class Post {
     this.timestamp, [
     List<String>? replies,
   ]) : replies = replies ?? [];
+
+  // ── fromJson / toJson ─────────────────────────────────────────────────────
+  factory Post.fromJson(Map<String, dynamic> json) {
+    return Post(
+      json['id'] as String,
+      json['profileImageUrl'] as String,
+      json['comment'] as String,
+      json['timestamp'] as String,
+      (json['replies'] as List<dynamic>?)
+              ?.map((e) => e as String)
+              .toList() ??
+          [],
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'profileImageUrl': profileImageUrl,
+        'comment': comment,
+        'timestamp': timestamp,
+        'replies': replies,
+      };
 }
+
+// ── Existing data — completely unchanged ──────────────────────────────────────
 
 List<Post> posts = [
   Post(

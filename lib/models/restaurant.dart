@@ -4,6 +4,21 @@ class Review {
   final String comment;
 
   Review({required this.reviewer, required this.rating, required this.comment});
+
+  // ── fromJson / toJson ─────────────────────────────────────────────────────
+  factory Review.fromJson(Map<String, dynamic> json) {
+    return Review(
+      reviewer: json['reviewer'] as String,
+      rating: json['rating'] as int,
+      comment: json['comment'] as String,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'reviewer': reviewer,
+        'rating': rating,
+        'comment': comment,
+      };
 }
 
 class Item {
@@ -18,6 +33,23 @@ class Item {
     required this.price,
     required this.imageUrl,
   });
+
+  // ── fromJson / toJson ─────────────────────────────────────────────────────
+  factory Item.fromJson(Map<String, dynamic> json) {
+    return Item(
+      name: json['name'] as String,
+      description: json['description'] as String,
+      price: (json['price'] as num).toDouble(),
+      imageUrl: json['imageUrl'] as String,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        'description': description,
+        'price': price,
+        'imageUrl': imageUrl,
+      };
 
   @override
   bool operator ==(Object other) {
@@ -61,7 +93,43 @@ class Restaurant {
   String getRatingAndDistance() {
     return '''Rating: ${rating.toStringAsFixed(1)} ★ | Distance: ${distance.toStringAsFixed(1)} miles''';
   }
+
+  // ── fromJson / toJson ─────────────────────────────────────────────────────
+  factory Restaurant.fromJson(Map<String, dynamic> json) {
+    return Restaurant(
+      json['id'] as String,
+      json['name'] as String,
+      json['address'] as String,
+      json['attributes'] as String,
+      json['imageUrl'] as String,
+      json['imageCredits'] as String,
+      (json['distance'] as num).toDouble(),
+      (json['rating'] as num).toDouble(),
+      (json['items'] as List<dynamic>)
+          .map((e) => Item.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      reviews: (json['reviews'] as List<dynamic>?)
+              ?.map((e) => Review.fromJson(e as Map<String, dynamic>))
+              .toList() ??
+          [],
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'id': id,
+        'name': name,
+        'address': address,
+        'attributes': attributes,
+        'imageUrl': imageUrl,
+        'imageCredits': imageCredits,
+        'distance': distance,
+        'rating': rating,
+        'items': items.map((e) => e.toJson()).toList(),
+        'reviews': reviews.map((e) => e.toJson()).toList(),
+      };
 }
+
+// ── Existing data — completely unchanged ──────────────────────────────────────
 
 List<Restaurant> restaurants = [
   Restaurant(

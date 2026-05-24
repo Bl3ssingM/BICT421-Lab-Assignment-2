@@ -1,26 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
 
-import '../constants.dart';
 import '../home.dart';
 import '../models/auth.dart';
-import '../models/restaurant.dart';
+import '../providers/cart_provider.dart';
 import 'account_page.dart';
 import 'orders_page.dart';
 
 class MainShell extends StatefulWidget {
-  const MainShell({
-    super.key,
-    required this.auth,
-    required this.changeTheme,
-    required this.changeColor,
-    required this.colorSelected,
-  });
+  const MainShell({super.key, required this.auth});
 
   final Auth auth;
-  final void Function(bool) changeTheme;
-  final void Function(int) changeColor;
-  final ColorSelection colorSelected;
 
   @override
   State<MainShell> createState() => _MainShellState();
@@ -30,67 +21,54 @@ class _MainShellState extends State<MainShell> {
   int _selectedIndex = 0;
   final List<PlacedOrder> _orders = [];
 
-  // Called from the cart sheet when user taps "Proceed to checkout"
-  void _onCheckout(Map<Item, int> cartItems) {
-    if (cartItems.isEmpty) return;
-    final total = cartItems.entries
-        .fold(0.0, (sum, e) => sum + e.key.price * e.value);
+  /// Called when the user taps "Proceed to checkout" in the cart.
+  /// Reads cart data from [CartProvider] instead of receiving it as a callback.
+  void _onCheckout() {
+    final cartProvider = context.read<CartProvider>();
+    if (cartProvider.isEmpty) return;
+
     setState(() {
       _orders.add(PlacedOrder(
-        items: Map.from(cartItems),
+        items: Map.from(cartProvider.items),
         placedAt: DateTime.now(),
-        total: total,
+        total: cartProvider.totalPriceUsd,
       ));
+      _selectedIndex = 1; // switch to Orders tab
     });
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      setState(() => _selectedIndex = 1); // switch to Orders tab automatically
-    });
+
+    cartProvider.clear(); // clear cart after placing order
   }
 
-  void _cancelOrder(int index) {
-    if (index < 0 || index >= _orders.length) return;
+  void _goToAccount() => setState(() => _selectedIndex = 2);
+
+  void _onAddMore() => setState(() => _selectedIndex = 0);
+
+  void _onCancelOrder(int index) {
     setState(() {
-      _orders.removeAt(index);
+      if (index >= 0 && index < _orders.length) {
+        _orders.removeAt(index);
+      }
     });
-  }
-
-  void _onAddMore() {
-    setState(() => _selectedIndex = 0);
-  }
-
-  void _goToAccount() {
-    setState(() => _selectedIndex = 2);
   }
 
   @override
   Widget build(BuildContext context) {
     final tabs = [
-      // ── Explore ──────────────────────────────────────────────────────────
-      Home(
-        auth: widget.auth,
-        changeTheme: widget.changeTheme,
-        changeColor: widget.changeColor,
-        colorSelected: widget.colorSelected,
-        onCheckout: _onCheckout,
-      ),
-      // ── Orders ───────────────────────────────────────────────────────────
+      Home(auth: widget.auth, onCheckout: _onCheckout),
       OrdersPage(
         orders: _orders,
         onGoToAccount: _goToAccount,
-        onCancelOrder: _cancelOrder,
+        onCancelOrder: _onCancelOrder,
         onAddMore: _onAddMore,
       ),
-      // ── Account ──────────────────────────────────────────────────────────
       AccountPage(
         auth: widget.auth,
-        onLogOut: () {
-          widget.auth.signOut().then((_) => context.go('/login'));
+        onLogOut: () async {
+          final router = GoRouter.of(context);
+          await widget.auth.signOut();
+          if (!mounted) return;
+          router.go('/login');
         },
-        onGoToOrders: () => setState(() => _selectedIndex = 1),
-        changeTheme: widget.changeTheme,
-        changeColor: widget.changeColor,
-        colorSelected: widget.colorSelected,
       ),
     ];
 

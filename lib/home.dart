@@ -1,20 +1,22 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import 'package:provider/provider.dart';
 
-import 'components/category_card.dart';
 import 'components/post_card.dart';
 import 'components/restaurant_landscape_card.dart';
 import 'constants.dart';
 import 'models/auth.dart';
-import 'models/food_category.dart';
 import 'models/post.dart';
 import 'models/restaurant.dart';
+import 'providers/cart_provider.dart';
+import 'providers/favourites_provider.dart';
+import 'providers/theme_provider.dart';
+import 'screens/api_categories_screen.dart';
 
 const double _zarConversionRate = 18.5;
 
-String _formatZar(double amount) {
-  return 'R${(amount * _zarConversionRate).toStringAsFixed(2)}';
-}
+String _formatZar(double amount) =>
+    'R${(amount * _zarConversionRate).toStringAsFixed(2)}';
 
 SnackBar buildModernSnackBar(
   BuildContext context,
@@ -38,17 +40,13 @@ SnackBar buildModernSnackBar(
         : null,
     content: Row(
       children: [
-        Icon(
-          Icons.check_circle_outline,
-          color: Theme.of(context).colorScheme.onSurface,
-          size: 20.0,
-        ),
+        Icon(Icons.check_circle_outline,
+            color: Theme.of(context).colorScheme.onSurface, size: 20.0),
         const SizedBox(width: 12.0),
         Expanded(
-          child: Text(
-            message,
-            style: TextStyle(color: Theme.of(context).colorScheme.onSurface),
-          ),
+          child: Text(message,
+              style:
+                  TextStyle(color: Theme.of(context).colorScheme.onSurface)),
         ),
       ],
     ),
@@ -58,33 +56,20 @@ SnackBar buildModernSnackBar(
 class Home extends StatefulWidget {
   const Home({
     super.key,
-    required this.changeTheme,
-    required this.changeColor,
-    required this.colorSelected,
     required this.auth,
-    this.onCheckout,        // ← NEW: called when user proceeds to checkout
+    this.onCheckout,
     this.appTitle = 'Yummy',
   });
 
-  final ColorSelection colorSelected;
-  final void Function(bool useLightMode) changeTheme;
-  final void Function(int value) changeColor;
   final Auth auth;
-  final void Function(Map<Item, int> cartItems)? onCheckout; // ← NEW
+  final VoidCallback? onCheckout; // ← simplified: no longer passes cartItems
   final String appTitle;
-
   @override
   State<Home> createState() => _HomeState();
 }
 
 class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
-  // ── CHANGED: TabController replaces the old `int tab` state ──────────────
   late TabController _tabController;
-
-  FoodCategory? selectedCategory;
-  final Map<Item, int> cartItems = {};
-  final List<Item> likedItems = [];
-  final List<Restaurant> likedRestaurants = [];
   final ScrollController _categoryScrollController = ScrollController();
 
   @override
@@ -100,58 +85,30 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
     super.dispose();
   }
 
-  bool _isItemLiked(Item item) => likedItems.contains(item);
-
-  int get _cartTotalCount => cartItems.values.fold(0, (sum, qty) => sum + qty);
-
-  void _toggleItemLike(Item item) {
-    setState(() {
-      if (_isItemLiked(item)) {
-        likedItems.remove(item);
-      } else {
-        likedItems.add(item);
-      }
-    });
-
-    final message = _isItemLiked(item)
-        ? 'Added "${item.name}" to liked items'
-        : 'Removed "${item.name}" from liked items';
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(buildModernSnackBar(context, message));
-  }
-
+  // ── Cart actions — delegate to CartProvider ─────────────────────────────
   void _promptQuantityAndAddToCart(Item item) {
     int quantity = 1;
-
     showModalBottomSheet<void>(
       context: context,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16.0)),
-      ),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(16.0))),
       builder: (context) {
         return StatefulBuilder(
-          builder: (context, setState) {
+          builder: (context, setModalState) {
             return Padding(
               padding: const EdgeInsets.symmetric(
-                horizontal: 16.0,
-                vertical: 24.0,
-              ),
+                  horizontal: 16.0, vertical: 24.0),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  Text(
-                    'Select quantity',
-                    style: Theme.of(context).textTheme.headlineSmall,
-                  ),
+                  Text('Select quantity',
+                      style: Theme.of(context).textTheme.headlineSmall),
                   const SizedBox(height: 8.0),
-                  Text(
-                    'Choose how many servings to add to your order.',
-                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                          color: Colors.grey.shade600,
-                        ),
-                  ),
+                  Text('Choose how many servings to add to your order.',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: Colors.grey.shade600,
+                          )),
                   const SizedBox(height: 16.0),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -159,30 +116,33 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
                       IconButton(
                         icon: const Icon(Icons.remove_circle_outline),
                         onPressed: quantity > 1
-                            ? () => setState(() => quantity = quantity - 1)
+                            ? () => setModalState(() => quantity--)
                             : null,
                       ),
                       const SizedBox(width: 16.0),
-                      Text(
-                        '$quantity',
-                        style: Theme.of(context).textTheme.headlineMedium,
-                      ),
+                      Text('$quantity',
+                          style:
+                              Theme.of(context).textTheme.headlineMedium),
                       const SizedBox(width: 16.0),
                       IconButton(
                         icon: const Icon(Icons.add_circle_outline),
-                        onPressed: () =>
-                            setState(() => quantity = quantity + 1),
+                        onPressed: () => setModalState(() => quantity++),
                       ),
                     ],
                   ),
                   const SizedBox(height: 24.0),
                   ElevatedButton(
                     style: ElevatedButton.styleFrom(
-                      minimumSize: const Size.fromHeight(48),
-                    ),
+                        minimumSize: const Size.fromHeight(48)),
                     onPressed: () {
                       Navigator.of(context).pop();
-                      _addItemToCart(item, quantity);
+                      context.read<CartProvider>().add(item, quantity);
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        buildModernSnackBar(
+                          context,
+                          'Added x$quantity ${item.name} to cart',
+                        ),
+                      );
                     },
                     child: Text('Buy x$quantity'),
                   ),
@@ -195,97 +155,86 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
     );
   }
 
-  void _addItemToCart(Item item, int quantity) {
-    setState(() {
-      cartItems[item] = (cartItems[item] ?? 0) + quantity;
-    });
+  // ── Favourites — delegate to FavouritesProvider ─────────────────────────
+  void _toggleItemLike(Item item) {
+    context.read<FavouritesProvider>().toggleItem(item);
+    final liked = context.read<FavouritesProvider>().isItemLiked(item);
     ScaffoldMessenger.of(context).showSnackBar(
       buildModernSnackBar(
         context,
-        'Added x$quantity ${item.name} to cart',
-        actionLabel: 'View cart',
-        onAction: _openCartFromSnackBar,
+        liked
+            ? 'Added "${item.name}" to liked items'
+            : 'Removed "${item.name}" from liked items',
       ),
     );
   }
 
-  void _openCartFromSnackBar() {
-    ScaffoldMessenger.of(context).hideCurrentSnackBar();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      _showCartBottomSheet();
-    });
+  void _toggleRestaurantLike(Restaurant restaurant) {
+    context.read<FavouritesProvider>().toggleRestaurant(restaurant);
+    final liked = context
+        .read<FavouritesProvider>()
+        .isRestaurantLiked(restaurant);
+    ScaffoldMessenger.of(context).showSnackBar(
+      buildModernSnackBar(
+        context,
+        liked
+            ? 'Saved "${restaurant.name}" to favorites'
+            : 'Removed "${restaurant.name}" from favorites',
+      ),
+    );
   }
 
-  List<Restaurant> _recommendedRestaurants() {
+  // ── Recommendations — reads from FavouritesProvider ─────────────────────
+  List<Restaurant> _recommendedRestaurants(
+      List<Restaurant> likedRestaurants) {
     final likedAttributes = likedRestaurants
-        .expand((restaurant) => restaurant.attributes.split(','))
-        .map((attribute) => attribute.trim().toLowerCase())
-        .where((attribute) => attribute.isNotEmpty)
+        .expand((r) => r.attributes.split(','))
+        .map((a) => a.trim().toLowerCase())
+        .where((a) => a.isNotEmpty)
         .toSet();
 
-    final allMatches = restaurants.where((restaurant) {
-      if (likedRestaurants.contains(restaurant)) return false;
+    final allMatches = restaurants.where((r) {
+      if (likedRestaurants.contains(r)) return false;
       if (likedAttributes.isEmpty) return true;
-      final restaurantTags = restaurant.attributes
+      final tags = r.attributes
           .split(',')
-          .map((tag) => tag.trim().toLowerCase())
+          .map((t) => t.trim().toLowerCase())
           .toSet();
-      return restaurantTags.intersection(likedAttributes).isNotEmpty;
+      return tags.intersection(likedAttributes).isNotEmpty;
     }).toList();
 
     if (likedAttributes.isEmpty) {
       allMatches.sort((a, b) => b.rating.compareTo(a.rating));
     }
-
     return allMatches.take(3).toList();
   }
 
-  void _toggleRestaurantLike(Restaurant restaurant) {
-    setState(() {
-      if (likedRestaurants.contains(restaurant)) {
-        likedRestaurants.remove(restaurant);
-      } else {
-        likedRestaurants.add(restaurant);
-      }
-    });
-    final message = likedRestaurants.contains(restaurant)
-        ? 'Saved "${restaurant.name}" to favorites'
-        : 'Removed "${restaurant.name}" from favorites';
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(buildModernSnackBar(context, message));
-  }
-
+  // ── Bottom sheets ────────────────────────────────────────────────────────
   void _showLikedItemsBottomSheet() {
+    final likedItems =
+        context.read<FavouritesProvider>().likedItems;
     showModalBottomSheet<void>(
       context: context,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16.0)),
-      ),
-      builder: (context) {
-        return _ItemListSheet(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(16.0))),
+      builder: (_) => _ItemListSheet(
           title: 'Liked Items',
           items: likedItems,
-          emptyMessage: 'No liked items yet.',
-        );
-      },
+          emptyMessage: 'No liked items yet.'),
     );
   }
 
   void _showLikedRestaurantsBottomSheet() {
+    final likedRestaurants =
+        context.read<FavouritesProvider>().likedRestaurants;
     showModalBottomSheet<void>(
       context: context,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16.0)),
-      ),
-      builder: (context) {
-        return _RestaurantListSheet(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(16.0))),
+      builder: (_) => _RestaurantListSheet(
           title: 'Favorite Restaurants',
           restaurants: likedRestaurants,
-          emptyMessage: 'No favorite restaurants yet.',
-        );
-      },
+          emptyMessage: 'No favorite restaurants yet.'),
     );
   }
 
@@ -294,8 +243,7 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
       context: context,
       isScrollControlled: true,
       shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(16.0)),
-      ),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(16.0))),
       builder: (context) {
         return DraggableScrollableSheet(
           initialChildSize: 0.6,
@@ -303,17 +251,16 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
           maxChildSize: 0.9,
           expand: false,
           builder: (context, scrollController) {
+            // context.watch here so the sheet rebuilds when cart changes
+            final cart = context.watch<CartProvider>();
             return _CartListSheet(
-              title: 'Cart',
-              cartItems: cartItems,
-              emptyMessage: 'Your cart is empty.',
+              cartItems: cart.items,
               scrollController: scrollController,
-              // ── NEW: wire checkout to parent callback ─────────────────
               onCheckout: widget.onCheckout == null
                   ? null
                   : () {
-                      widget.onCheckout!(Map.from(cartItems));
-                      setState(() => cartItems.clear()); // clear after order
+                      Navigator.of(context).pop();
+                      widget.onCheckout!();
                     },
             );
           },
@@ -330,26 +277,30 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
           onItemLikeToggle: _toggleItemLike,
           onBuyRequested: _promptQuantityAndAddToCart,
           onRestaurantLikeToggle: _toggleRestaurantLike,
-          isRestaurantLiked: likedRestaurants.contains(restaurant),
-          isItemLiked: _isItemLiked,
+          isRestaurantLiked: context
+              .read<FavouritesProvider>()
+              .isRestaurantLiked(restaurant),
+          isItemLiked: (item) =>
+              context.read<FavouritesProvider>().isItemLiked(item),
         ),
       ),
     );
   }
 
+  // ── Header actions ───────────────────────────────────────────────────────
   Widget _buildHeaderActions(BuildContext context) {
     final isBright = Theme.of(context).brightness == Brightness.light;
+    // Watch providers so badges update automatically
+    final favs = context.watch<FavouritesProvider>();
+    final cart = context.watch<CartProvider>();
+    final themeProvider = context.watch<ThemeProvider>();
 
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         IconButton(
           icon: Badge(
-            label: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 250),
-              transitionBuilder: (child, animation) => ScaleTransition(scale: animation, child: child),
-              child: Text('${likedItems.length}', key: ValueKey(likedItems.length)),
-            ),
+            label: Text('${favs.likedItemCount}'),
             child: const Icon(Icons.favorite_border),
           ),
           tooltip: 'Liked items',
@@ -357,11 +308,7 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
         ),
         IconButton(
           icon: Badge(
-            label: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 250),
-              transitionBuilder: (child, animation) => ScaleTransition(scale: animation, child: child),
-              child: Text('${likedRestaurants.length}', key: ValueKey(likedRestaurants.length)),
-            ),
+            label: Text('${favs.likedRestaurantCount}'),
             child: const Icon(Icons.restaurant),
           ),
           tooltip: 'Favorite restaurants',
@@ -373,7 +320,8 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
               duration: const Duration(milliseconds: 300),
               transitionBuilder: (child, animation) =>
                   ScaleTransition(scale: animation, child: child),
-              child: Text('$_cartTotalCount', key: ValueKey(_cartTotalCount)),
+              child: Text('${cart.totalCount}',
+                  key: ValueKey(cart.totalCount)),
             ),
             child: const Icon(Icons.shopping_cart_outlined),
           ),
@@ -383,54 +331,53 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
         PopupMenuButton<int>(
           icon: const Icon(Icons.more_vert),
           tooltip: 'More actions',
-          itemBuilder: (context) {
-            return [
-              PopupMenuItem<int>(
-                value: 0,
-                child: ListTile(
-                  leading: Icon(
-                    isBright
-                        ? Icons.dark_mode_outlined
-                        : Icons.light_mode_outlined,
-                  ),
-                  title: const Text('Toggle theme'),
-                ),
+          itemBuilder: (context) => [
+            PopupMenuItem<int>(
+              value: 0,
+              child: ListTile(
+                leading: Icon(isBright
+                    ? Icons.dark_mode_outlined
+                    : Icons.light_mode_outlined),
+                title: const Text('Toggle theme'),
               ),
-              const PopupMenuDivider(),
-              ...ColorSelection.values.map((colorSelection) {
-                final index = ColorSelection.values.indexOf(colorSelection);
-                return PopupMenuItem<int>(
-                  value: index + 1,
-                  enabled: colorSelection != widget.colorSelected,
-                  child: Row(
-                    children: [
-                      Icon(Icons.opacity_outlined, color: colorSelection.color),
-                      const SizedBox(width: 12.0),
-                      Text(colorSelection.label),
-                    ],
-                  ),
-                );
-              }),
-              const PopupMenuDivider(),
-              PopupMenuItem<int>(
-                value: -1,
-                child: ListTile(
-                  leading: Icon(Icons.logout_rounded,
-                      color: Theme.of(context).colorScheme.error),
-                  title: Text('Log out',
-                      style: TextStyle(
-                          color: Theme.of(context).colorScheme.error)),
+            ),
+            const PopupMenuDivider(),
+            ...ColorSelection.values.map((cs) {
+              final index = ColorSelection.values.indexOf(cs);
+              return PopupMenuItem<int>(
+                value: index + 1,
+                enabled: cs != themeProvider.colorSelected,
+                child: Row(
+                  children: [
+                    Icon(Icons.opacity_outlined, color: cs.color),
+                    const SizedBox(width: 12.0),
+                    Text(cs.label),
+                  ],
                 ),
+              );
+            }),
+            const PopupMenuDivider(),
+            PopupMenuItem<int>(
+              value: -1,
+              child: ListTile(
+                leading: Icon(Icons.logout_rounded,
+                    color: Theme.of(context).colorScheme.error),
+                title: Text('Log out',
+                    style: TextStyle(
+                        color: Theme.of(context).colorScheme.error)),
               ),
-            ];
-          },
-          onSelected: (value) {
+            ),
+          ],
+          onSelected: (value) async {
             if (value == -1) {
-              widget.auth.signOut().then((_) => context.go('/login'));
+              final router = GoRouter.of(context);
+              await widget.auth.signOut();
+              if (!mounted) return;
+              router.go('/login');
             } else if (value == 0) {
-              widget.changeTheme(!isBright);
+              context.read<ThemeProvider>().changeTheme(!isBright);
             } else {
-              widget.changeColor(value - 1);
+              context.read<ThemeProvider>().changeColor(value - 1);
             }
           },
         ),
@@ -438,103 +385,19 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
     );
   }
 
+  // ── Build ────────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
-    final pages = [
-      // ── Category tab ──────────────────────────────────────────────────────
-      selectedCategory == null
-          ? Center(
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(maxWidth: 300),
-                child: ListView.builder(
-                  key: const PageStorageKey('categoryList'),
-                  controller: _categoryScrollController,
-                  shrinkWrap: true,
-                  itemCount: categories.length,
-                  itemBuilder: (context, index) {
-                    final category = categories[index];
-                    final count = restaurants
-                        .where((r) => r.attributes.toLowerCase().contains(
-                              category.name.toLowerCase(),
-                            ))
-                        .length;
-                    return CategoryCard(
-                      category: category,
-                      restaurantCount: count,
-                      onTap: () => setState(() => selectedCategory = category),
-                    );
-                  },
-                ),
-              ),
-            )
-          : Builder(
-              builder: (context) {
-                final matchingRestaurants = restaurants
-                    .where((r) => r.attributes.toLowerCase().contains(
-                          selectedCategory!.name.toLowerCase(),
-                        ))
-                    .toList();
-                return Scaffold(
-                  appBar: AppBar(
-                    leading: IconButton(
-                      icon: const Icon(Icons.arrow_back),
-                      onPressed: () =>
-                          setState(() => selectedCategory = null),
-                    ),
-                    title: Text(selectedCategory!.name),
-                    automaticallyImplyLeading: false,
-                  ),
-                  body: matchingRestaurants.isEmpty
-                      ? Center(
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 24.0),
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              crossAxisAlignment: CrossAxisAlignment.center,
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(Icons.hourglass_empty,
-                                    size: 64,
-                                    color: Colors.grey.shade400),
-                                const SizedBox(height: 24),
-                                Text(
-                                  'No places yet',
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .headlineSmall
-                                      ?.copyWith(
-                                          color: Colors.grey.shade700,
-                                          fontWeight: FontWeight.bold),
-                                  textAlign: TextAlign.center,
-                                ),
-                                const SizedBox(height: 8),
-                                Text(
-                                  'Coming soon!',
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .bodyLarge
-                                      ?.copyWith(
-                                          color: Colors.grey.shade600),
-                                  textAlign: TextAlign.center,
-                                ),
-                              ],
-                            ),
-                          ),
-                        )
-                      : ListView(
-                          children: matchingRestaurants
-                              .map((r) => RestaurantLandscapeCard(
-                                    restaurant: r,
-                                    onTap: () => _openRestaurantDetail(r),
-                                  ))
-                              .toList(),
-                        ),
-                );
-              },
-            ),
+    // Watch FavouritesProvider so restaurant tab recommendations update
+    final likedRestaurants =
+        context.watch<FavouritesProvider>().likedRestaurants;
+    final recommended = _recommendedRestaurants(likedRestaurants);
 
-      // ── Post tab ──────────────────────────────────────────────────────────
+    final pages = [
+      // ── Tab 0: API-driven categories from TheMealDB ───────────────────
+      const ApiCategoriesScreen(),
+
+      // ── Tab 1: Posts (unchanged from Lab 2) ───────────────────────────
       Center(
         child: Padding(
           padding: const EdgeInsets.all(16.0),
@@ -546,37 +409,37 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
         ),
       ),
 
-      // ── Restaurant tab ────────────────────────────────────────────────────
+      // ── Tab 2: Restaurants (uses FavouritesProvider for recommended) ──
       Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 400),
           child: ListView(
             shrinkWrap: true,
             children: [
-              if (_recommendedRestaurants().isNotEmpty) ...[
+              if (recommended.isNotEmpty) ...[
                 Padding(
                   padding: const EdgeInsets.symmetric(
                       horizontal: 16.0, vertical: 20.0),
                   child: Text('Recommended for you',
-                      style: Theme.of(context).textTheme.headlineSmall),
+                      style:
+                          Theme.of(context).textTheme.headlineSmall),
                 ),
                 SizedBox(
                   height: 240,
                   child: ListView.separated(
                     scrollDirection: Axis.horizontal,
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 16.0),
-                    itemCount: _recommendedRestaurants().length,
+                    padding: const EdgeInsets.symmetric(horizontal: 16.0),
+                    itemCount: recommended.length,
                     separatorBuilder: (_, _) =>
                         const SizedBox(width: 12.0),
                     itemBuilder: (context, index) {
-                      final restaurant = _recommendedRestaurants()[index];
+                      final r = recommended[index];
                       return SizedBox(
                         width: 300,
                         child: RestaurantLandscapeCard(
-                          restaurant: restaurant,
+                          restaurant: r,
                           recommended: true,
-                          onTap: () => _openRestaurantDetail(restaurant),
+                          onTap: () => _openRestaurantDetail(r),
                         ),
                       );
                     },
@@ -596,8 +459,6 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
       ),
     ];
 
-    // TabBar moved into the body so Category/Post/Restaurant
-    // appears inside Explore content, not in the AppBar.
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.appTitle),
@@ -607,7 +468,6 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
       ),
       body: Column(
         children: [
-          // Category / Post / Restaurant selector sits at the top of the body
           TabBar(
             controller: _tabController,
             tabs: const [
@@ -618,7 +478,6 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
                   text: 'Restaurant'),
             ],
           ),
-          // Tab content fills the rest of the space
           Expanded(
             child: TabBarView(
               controller: _tabController,
@@ -627,20 +486,19 @@ class _HomeState extends State<Home> with SingleTickerProviderStateMixin {
           ),
         ],
       ),
-      // No bottom NavigationBar — MainShell provides Explore/Orders/Account
     );
   }
 }
 
-// ── All classes below are COMPLETELY UNCHANGED ────────────────────────────────
+// ── RestaurantDetailPage — unchanged logic, uses Provider via callbacks ───────
 
 class RestaurantDetailPage extends StatefulWidget {
   final Restaurant restaurant;
-  final void Function(Item item) onBuyRequested;
-  final void Function(Item item) onItemLikeToggle;
-  final void Function(Restaurant restaurant) onRestaurantLikeToggle;
+  final void Function(Item) onBuyRequested;
+  final void Function(Item) onItemLikeToggle;
+  final void Function(Restaurant) onRestaurantLikeToggle;
   final bool isRestaurantLiked;
-  final bool Function(Item item) isItemLiked;
+  final bool Function(Item) isItemLiked;
 
   const RestaurantDetailPage({
     super.key,
@@ -683,19 +541,13 @@ class _RestaurantDetailPageState extends State<RestaurantDetailPage> {
         Review(
           reviewer: 'You',
           rating: rating,
-          comment:
-              'Delicious meal with great service — highly recommended!',
+          comment: 'Delicious meal with great service — highly recommended!',
         ),
       );
     });
     ScaffoldMessenger.of(context).showSnackBar(
       buildModernSnackBar(context, 'Thanks for rating $rating stars!'),
     );
-  }
-
-  void _toggleItemLike(Item item) {
-    widget.onItemLikeToggle(item);
-    setState(() {});
   }
 
   @override
@@ -733,38 +585,24 @@ class _RestaurantDetailPageState extends State<RestaurantDetailPage> {
           Text(widget.restaurant.getRatingAndDistance(),
               style: textTheme.bodySmall),
           const SizedBox(height: 16.0),
+          Text('Rate this place', style: textTheme.titleMedium),
+          const SizedBox(height: 8.0),
           Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text('Rate this place',
-                        style: textTheme.titleMedium),
-                    const SizedBox(height: 8.0),
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: List.generate(5, (index) {
-                        final value = index + 1;
-                        return IconButton(
-                          padding: EdgeInsets.zero,
-                          constraints: const BoxConstraints(),
-                          icon: Icon(
-                            value <= _selectedRating
-                                ? Icons.star
-                                : Icons.star_border,
-                            color: Colors.amber,
-                            size: 28,
-                          ),
-                          onPressed: () => _submitRating(value),
-                        );
-                      }),
-                    ),
-                  ],
-                ),
-              ),
-            ],
+            mainAxisSize: MainAxisSize.min,
+            children: List.generate(5, (index) {
+              final value = index + 1;
+              return IconButton(
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+                icon: Icon(
+                    value <= _selectedRating
+                        ? Icons.star
+                        : Icons.star_border,
+                    color: Colors.amber,
+                    size: 28),
+                onPressed: () => _submitRating(value),
+              );
+            }),
           ),
           if (_ratingSubmitted)
             Padding(
@@ -796,27 +634,30 @@ class _RestaurantDetailPageState extends State<RestaurantDetailPage> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(item.name,
-                              style: textTheme.titleMedium),
+                          Text(item.name, style: textTheme.titleMedium),
                           const SizedBox(height: 6.0),
                           Text(item.description,
                               style: textTheme.bodySmall),
                           const SizedBox(height: 8.0),
-                          Text(_formatZar(item.price),
+                          Text(
+                              'R${(item.price * _zarConversionRate).toStringAsFixed(2)}',
                               style: textTheme.bodyMedium),
                         ],
                       ),
                     ),
                     Column(
                       children: [
-                        IconButton(
-                          icon: Icon(
-                            widget.isItemLiked(item)
-                                ? Icons.favorite
-                                : Icons.favorite_border,
-                            color: Colors.redAccent,
+                        // Watches FavouritesProvider for live badge updates
+                        Consumer<FavouritesProvider>(
+                          builder: (context, favs, _) => IconButton(
+                            icon: Icon(
+                                favs.isItemLiked(item)
+                                    ? Icons.favorite
+                                    : Icons.favorite_border,
+                                color: Colors.redAccent),
+                            onPressed: () =>
+                                widget.onItemLikeToggle(item),
                           ),
-                          onPressed: () => _toggleItemLike(item),
                         ),
                         ElevatedButton(
                           onPressed: () =>
@@ -834,11 +675,9 @@ class _RestaurantDetailPageState extends State<RestaurantDetailPage> {
           Text('Reviews', style: textTheme.headlineSmall),
           const SizedBox(height: 12.0),
           if (widget.restaurant.reviews.isEmpty)
-            Text(
-              'No reviews yet. Tap a star to leave the first review.',
-              style: textTheme.bodyMedium
-                  ?.copyWith(color: Colors.grey.shade600),
-            )
+            Text('No reviews yet.',
+                style: textTheme.bodyMedium
+                    ?.copyWith(color: Colors.grey.shade600))
           else
             ...widget.restaurant.reviews.take(3).map(
                   (review) => Padding(
@@ -857,8 +696,7 @@ class _RestaurantDetailPageState extends State<RestaurantDetailPage> {
                           ],
                         ),
                         const SizedBox(height: 6.0),
-                        Text(review.comment,
-                            style: textTheme.bodySmall),
+                        Text(review.comment, style: textTheme.bodySmall),
                         const Divider(height: 20.0),
                       ],
                     ),
@@ -871,16 +709,17 @@ class _RestaurantDetailPageState extends State<RestaurantDetailPage> {
   }
 }
 
-class _ItemListSheet extends StatelessWidget {
-  final String title;
-  final List<Item> items;
-  final String emptyMessage;
+// ── Sheet widgets — unchanged, cart now reads from CartProvider ───────────────
 
+class _ItemListSheet extends StatelessWidget {
   const _ItemListSheet({
     required this.title,
     required this.items,
     required this.emptyMessage,
   });
+  final String title;
+  final List<Item> items;
+  final String emptyMessage;
 
   @override
   Widget build(BuildContext context) {
@@ -891,20 +730,18 @@ class _ItemListSheet extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(title,
-              style: Theme.of(context).textTheme.headlineSmall),
+          Text(title, style: Theme.of(context).textTheme.headlineSmall),
           const SizedBox(height: 12.0),
           if (items.isEmpty)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 24.0),
-              child: Center(
-                child: Text(
-                  emptyMessage,
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: Colors.grey.shade600,
-                      ),
-                ),
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 24.0),
+                child: Text(emptyMessage,
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context)
+                        .textTheme
+                        .bodyMedium
+                        ?.copyWith(color: Colors.grey.shade600)),
               ),
             )
           else
@@ -929,15 +766,14 @@ class _ItemListSheet extends StatelessWidget {
 }
 
 class _RestaurantListSheet extends StatelessWidget {
-  final String title;
-  final List<Restaurant> restaurants;
-  final String emptyMessage;
-
   const _RestaurantListSheet({
     required this.title,
     required this.restaurants,
     required this.emptyMessage,
   });
+  final String title;
+  final List<Restaurant> restaurants;
+  final String emptyMessage;
 
   @override
   Widget build(BuildContext context) {
@@ -948,34 +784,32 @@ class _RestaurantListSheet extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(title,
-              style: Theme.of(context).textTheme.headlineSmall),
+          Text(title, style: Theme.of(context).textTheme.headlineSmall),
           const SizedBox(height: 12.0),
           if (restaurants.isEmpty)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 24.0),
-              child: Center(
-                child: Text(
-                  emptyMessage,
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: Colors.grey.shade600,
-                      ),
-                ),
+            Center(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 24.0),
+                child: Text(emptyMessage,
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context)
+                        .textTheme
+                        .bodyMedium
+                        ?.copyWith(color: Colors.grey.shade600)),
               ),
             )
           else
             ...restaurants.map(
-              (restaurant) => ListTile(
+              (r) => ListTile(
                 contentPadding:
                     const EdgeInsets.symmetric(vertical: 4.0),
                 leading: ClipRRect(
                   borderRadius: BorderRadius.circular(8.0),
-                  child: Image.asset(restaurant.imageUrl,
+                  child: Image.asset(r.imageUrl,
                       width: 52, height: 52, fit: BoxFit.cover),
                 ),
-                title: Text(restaurant.name),
-                subtitle: Text(restaurant.attributes),
+                title: Text(r.name),
+                subtitle: Text(r.attributes),
               ),
             ),
           const SizedBox(height: 16.0),
@@ -986,27 +820,23 @@ class _RestaurantListSheet extends StatelessWidget {
 }
 
 class _CartListSheet extends StatelessWidget {
-  final String title;
-  final Map<Item, int> cartItems;
-  final String emptyMessage;
-  final ScrollController? scrollController;
-  final VoidCallback? onCheckout; // ← NEW
-
   const _CartListSheet({
-    required this.title,
     required this.cartItems,
-    required this.emptyMessage,
     this.scrollController,
-    this.onCheckout,        // ← NEW
+    this.onCheckout,
   });
+
+  final Map<Item, int> cartItems;
+  final ScrollController? scrollController;
+  final VoidCallback? onCheckout;
 
   @override
   Widget build(BuildContext context) {
     final entries = cartItems.entries.toList();
     final totalItems =
-        entries.fold<int>(0, (sum, entry) => sum + entry.value);
-    final totalPrice = entries.fold<double>(
-        0.0, (sum, entry) => sum + entry.key.price * entry.value);
+        entries.fold<int>(0, (sum, e) => sum + e.value);
+    final totalPrice =
+        entries.fold<double>(0.0, (sum, e) => sum + e.key.price * e.value);
 
     return SingleChildScrollView(
       controller: scrollController,
@@ -1020,37 +850,35 @@ class _CartListSheet extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(title,
+            Text('Cart',
                 style: Theme.of(context).textTheme.headlineSmall),
             const SizedBox(height: 12.0),
-            if (entries.isEmpty) ...[
+            if (entries.isEmpty)
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 24.0),
                 child: Center(
-                  child: Text(
-                    emptyMessage,
-                    textAlign: TextAlign.center,
-                    style: Theme.of(context)
-                        .textTheme
-                        .bodyMedium
-                        ?.copyWith(color: Colors.grey.shade600),
-                  ),
+                  child: Text('Your cart is empty.',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context)
+                          .textTheme
+                          .bodyMedium
+                          ?.copyWith(color: Colors.grey.shade600)),
                 ),
-              ),
-            ] else ...[
+              )
+            else ...[
               ...entries.map(
-                (entry) => ListTile(
+                (e) => ListTile(
                   contentPadding:
                       const EdgeInsets.symmetric(vertical: 4.0),
                   leading: ClipRRect(
                     borderRadius: BorderRadius.circular(8.0),
-                    child: Image.asset(entry.key.imageUrl,
+                    child: Image.asset(e.key.imageUrl,
                         width: 52, height: 52, fit: BoxFit.cover),
                   ),
-                  title: Text(entry.key.name),
+                  title: Text(e.key.name),
                   subtitle: Text(
-                      'x${entry.value}  •  ${_formatZar(entry.key.price * entry.value)}'),
-                  trailing: Text('Qty ${entry.value}'),
+                      'x${e.value}  •  ${_formatZar(e.key.price * e.value)}'),
+                  trailing: Text('Qty ${e.value}'),
                 ),
               ),
               const SizedBox(height: 16.0),
@@ -1060,11 +888,9 @@ class _CartListSheet extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text('Items',
-                      style:
-                          Theme.of(context).textTheme.bodyMedium),
+                      style: Theme.of(context).textTheme.bodyMedium),
                   Text('$totalItems',
-                      style:
-                          Theme.of(context).textTheme.bodyMedium),
+                      style: Theme.of(context).textTheme.bodyMedium),
                 ],
               ),
               const SizedBox(height: 8.0),
@@ -1072,42 +898,25 @@ class _CartListSheet extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text('Total',
-                      style:
-                          Theme.of(context).textTheme.titleMedium),
+                      style: Theme.of(context).textTheme.titleMedium),
                   Text(_formatZar(totalPrice),
-                      style:
-                          Theme.of(context).textTheme.titleMedium),
+                      style: Theme.of(context).textTheme.titleMedium),
                 ],
               ),
               const SizedBox(height: 20.0),
               ElevatedButton(
                 style: ElevatedButton.styleFrom(
                     minimumSize: const Size.fromHeight(48)),
-                onPressed: () {
-                  ScaffoldMessenger.of(context).clearSnackBars();
-                  Navigator.of(context).pop();
-                  if (onCheckout != null) {
-                    // ── NEW: send order to MainShell → Orders tab ────
-                    onCheckout!();
-                  } else {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      buildModernSnackBar(
-                        context,
-                        'Checkout isn\'t active yet, but your order is ready.',
-                      ),
-                    );
-                  }
-                },
+                onPressed: onCheckout,
                 child: const Text('Proceed to checkout'),
               ),
               const SizedBox(height: 8.0),
-              Text(
-                'Estimated delivery: 15-20 min',
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Colors.grey.shade600,
-                    ),
-              ),
+              Text('Estimated delivery: 15-20 min',
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodySmall
+                      ?.copyWith(color: Colors.grey.shade600)),
             ],
             const SizedBox(height: 16.0),
           ],

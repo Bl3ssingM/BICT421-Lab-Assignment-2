@@ -38,6 +38,13 @@ class Auth extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Clears any saved session without broadcasting a logout event.
+  Future<void> clearSavedSession() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove(_loggedInKey);
+    await prefs.remove(_usernameKey);
+  }
+
   /// Clears the persisted session and notifies listeners so GoRouter
   /// can redirect to the login screen.
   Future<void> signOut() async {

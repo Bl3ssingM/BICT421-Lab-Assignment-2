@@ -4,7 +4,24 @@ class FoodCategory {
   String imageUrl;
 
   FoodCategory(this.name, this.numberOfRestaurants, this.imageUrl);
+
+  // ── fromJson / toJson ─────────────────────────────────────────────────────
+  factory FoodCategory.fromJson(Map<String, dynamic> json) {
+    return FoodCategory(
+      json['name'] as String,
+      json['numberOfRestaurants'] as int,
+      json['imageUrl'] as String,
+    );
+  }
+
+  Map<String, dynamic> toJson() => {
+        'name': name,
+        'numberOfRestaurants': numberOfRestaurants,
+        'imageUrl': imageUrl,
+      };
 }
+
+// ── Existing data — completely unchanged ──────────────────────────────────────
 
 List<FoodCategory> categories = [
   FoodCategory('Dessert', 16, 'assets/categories/dessert.png'),
