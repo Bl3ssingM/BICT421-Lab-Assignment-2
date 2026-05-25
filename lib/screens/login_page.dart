@@ -18,6 +18,18 @@ class _LoginPageState extends State<LoginPage> {
   bool _isLoading = false;
   String? _errorMessage;
 
+  bool _isValidEmail(String value) {
+    return RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$').hasMatch(value);
+  }
+
+  bool _isStrongPassword(String value) {
+    return value.length >= 8 &&
+        RegExp(r'[A-Z]').hasMatch(value) &&
+        RegExp(r'[a-z]').hasMatch(value) &&
+        RegExp(r'\d').hasMatch(value) &&
+        RegExp(r'[!@#\$%\^&*(),.?":{}|<>\[\]\\/\-_;+=~`]').hasMatch(value);
+  }
+
   @override
   void dispose() {
     _usernameController.dispose();
@@ -30,7 +42,18 @@ class _LoginPageState extends State<LoginPage> {
     final password = _passwordController.text.trim();
 
     if (username.isEmpty || password.isEmpty) {
-      setState(() => _errorMessage = 'Please enter username and password.');
+      setState(() => _errorMessage = 'Please enter an email and password.');
+      return;
+    }
+
+    if (!_isValidEmail(username)) {
+      setState(() => _errorMessage = 'Username must be a valid email address.');
+      return;
+    }
+
+    if (!_isStrongPassword(password)) {
+      setState(() => _errorMessage =
+          'Password must be at least 8 characters and include uppercase, lowercase, a number, and a special character.');
       return;
     }
 
@@ -86,9 +109,10 @@ class _LoginPageState extends State<LoginPage> {
                 // ── Username ─────────────────────────────────────────────────
                 TextField(
                   controller: _usernameController,
+                  keyboardType: TextInputType.emailAddress,
                   textInputAction: TextInputAction.next,
                   decoration: const InputDecoration(
-                    labelText: 'Username',
+                    labelText: 'Email',
                     border: OutlineInputBorder(),
                     prefixIcon: Icon(Icons.person_outline),
                   ),
@@ -99,6 +123,8 @@ class _LoginPageState extends State<LoginPage> {
                 TextField(
                   controller: _passwordController,
                   obscureText: true,
+                  autocorrect: false,
+                  enableSuggestions: false,
                   textInputAction: TextInputAction.done,
                   onSubmitted: (_) => _handleLogin(),
                   decoration: const InputDecoration(
