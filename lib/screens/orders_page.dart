@@ -23,13 +23,13 @@ class OrdersPage extends StatelessWidget {
   const OrdersPage({
     super.key,
     required this.orders,
-    required this.onGoToAccount,
+    required this.onGoToPaymentMethods,
     required this.onCancelOrder,
     required this.onAddMore,
   });
 
   final List<PlacedOrder> orders;
-  final VoidCallback onGoToAccount;
+  final VoidCallback onGoToPaymentMethods;
   final void Function(int) onCancelOrder;
   final VoidCallback onAddMore;
 
@@ -186,7 +186,7 @@ class OrdersPage extends StatelessWidget {
                     child: FilledButton.icon(
                       icon: const Icon(Icons.payment),
                       label: const Text('Pay Now'),
-                      onPressed: onGoToAccount,
+                      onPressed: onGoToPaymentMethods,
                     ),
                   ),
                 ],

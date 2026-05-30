@@ -7,6 +7,7 @@ import '../models/auth.dart';
 import '../providers/cart_provider.dart';
 import 'account_page.dart';
 import 'orders_page.dart';
+import 'payment_methods_page.dart';
 
 class MainShell extends StatefulWidget {
   const MainShell({super.key, required this.auth});
@@ -39,7 +40,13 @@ class _MainShellState extends State<MainShell> {
     cartProvider.clear(); // clear cart after placing order
   }
 
-  void _goToAccount() => setState(() => _selectedIndex = 2);
+  void _goToPaymentMethods() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => const PaymentMethodsPage(),
+      ),
+    );
+  }
 
   void _onAddMore() => setState(() => _selectedIndex = 0);
 
@@ -57,7 +64,7 @@ class _MainShellState extends State<MainShell> {
       Home(auth: widget.auth, onCheckout: _onCheckout),
       OrdersPage(
         orders: _orders,
-        onGoToAccount: _goToAccount,
+        onGoToPaymentMethods: _goToPaymentMethods,
         onCancelOrder: _onCancelOrder,
         onAddMore: _onAddMore,
       ),

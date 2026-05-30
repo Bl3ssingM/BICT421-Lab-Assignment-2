@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart';
+import 'package:youtube_player_flutter/youtube_player_flutter.dart';
 import '../models/meal.dart';
 import '../services/meal_service.dart';
 
@@ -23,6 +23,7 @@ class MealDetailScreen extends StatefulWidget {
 class _MealDetailScreenState extends State<MealDetailScreen> {
   final MealService _service = MealService();
   late Future<MealDetail> _detailFuture;
+  YoutubePlayerController? _youtubeController;
 
   @override
   void initState() {
@@ -36,11 +37,66 @@ class _MealDetailScreenState extends State<MealDetailScreen> {
     });
   }
 
-  Future<void> _launchYoutube(String url) async {
-    final uri = Uri.parse(url);
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
+  @override
+  void dispose() {
+    _youtubeController?.dispose();
+    super.dispose();
+  }
+
+  String? _extractYoutubeVideoId(String url) {
+    final uri = Uri.tryParse(url);
+    if (uri == null) return null;
+
+    if (uri.host.contains('youtu.be')) {
+      return uri.pathSegments.isNotEmpty ? uri.pathSegments.first : null;
     }
+
+    if (uri.queryParameters.containsKey('v')) {
+      return uri.queryParameters['v'];
+    }
+
+    if (uri.pathSegments.contains('embed') && uri.pathSegments.length > 1) {
+      return uri.pathSegments[uri.pathSegments.indexOf('embed') + 1];
+    }
+
+    return null;
+  }
+
+  Widget _buildYoutubeEmbed(String url) {
+    final videoId = _extractYoutubeVideoId(url);
+    if (videoId == null || videoId.isEmpty) {
+      return const SizedBox.shrink();
+    }
+
+    if (_youtubeController == null) {
+      _youtubeController = YoutubePlayerController(
+        initialVideoId: videoId,
+        flags: const YoutubePlayerFlags(
+          autoPlay: false,
+          mute: false,
+          enableCaption: true,
+          forceHD: false,
+        ),
+      );
+    } else if (_youtubeController!.metadata.videoId != videoId) {
+      _youtubeController!.load(videoId);
+    }
+
+    return AspectRatio(
+      aspectRatio: 16 / 9,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: YoutubePlayer(
+          controller: _youtubeController!,
+          showVideoProgressIndicator: true,
+          progressIndicatorColor: Theme.of(context).colorScheme.primary,
+          progressColors: ProgressBarColors(
+            playedColor: Theme.of(context).colorScheme.primary,
+            handleColor: Theme.of(context).colorScheme.primary,
+          ),
+        ),
+      ),
+    );
   }
 
   @override
@@ -154,14 +210,18 @@ class _MealDetailScreenState extends State<MealDetailScreen> {
                         style: Theme.of(context).textTheme.bodyMedium),
                     const SizedBox(height: 20),
 
-                    // ── YouTube button ────────────────────────────────────
-                    if (detail.youtubeUrl.isNotEmpty)
-                      OutlinedButton.icon(
-                        icon: const Icon(Icons.play_circle_outline),
-                        label: const Text('Watch on YouTube'),
-                        onPressed: () =>
-                            _launchYoutube(detail.youtubeUrl),
+                    // ── Embedded YouTube player ────────────────────────────
+                    if (detail.youtubeUrl.isNotEmpty) ...[
+                      Text(
+                        'Video',
+                        style: Theme.of(context)
+                            .textTheme
+                            .titleLarge
+                            ?.copyWith(fontWeight: FontWeight.bold),
                       ),
+                      const SizedBox(height: 8),
+                      _buildYoutubeEmbed(detail.youtubeUrl),
+                    ],
                     const SizedBox(height: 32),
                   ]),
                 ),

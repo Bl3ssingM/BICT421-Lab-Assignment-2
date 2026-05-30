@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import '../constants.dart';
 import '../models/auth.dart';
 import '../models/user.dart';
+import 'payment_methods_page.dart';
 import 'kodeco_view.dart';
 
 /// Shows the signed-in user's profile, a link to Kodeco, and a logout button.
@@ -240,30 +241,11 @@ class _AccountPageState extends State<AccountPage> {
             leading: const Icon(Icons.payment_outlined),
             title: const Text('Payment methods'),
             subtitle: Text(_payments.isEmpty ? 'No payment methods' : '${_payments.length} methods'),
-            onTap: () async {
-              final labelController = TextEditingController();
-              final detailsController = TextEditingController();
-              await showModalBottomSheet<void>(
-                context: context,
-                builder: (context) {
-                  return Padding(
-                    padding: const EdgeInsets.all(16.0),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        ..._payments.asMap().entries.map((e) => ListTile(
-                              title: Text(e.value['label'] ?? ''),
-                              subtitle: Text(e.value['details'] ?? ''),
-                              trailing: IconButton(icon: const Icon(Icons.delete), onPressed: () { _removePayment(e.key); Navigator.pop(context); }),
-                            )),
-                        TextField(controller: labelController, decoration: const InputDecoration(hintText: 'Card label (e.g., Visa •••• 1234)')),
-                        TextField(controller: detailsController, decoration: const InputDecoration(hintText: 'Details (mock)')),
-                        const SizedBox(height: 8),
-                        ElevatedButton(onPressed: () { if (labelController.text.trim().isNotEmpty) { _addPayment(labelController.text.trim(), detailsController.text.trim()); Navigator.pop(context); } }, child: const Text('Add')),
-                      ],
-                    ),
-                  );
-                },
+            onTap: () {
+              Navigator.of(context).push(
+                MaterialPageRoute(
+                  builder: (_) => const PaymentMethodsPage(),
+                ),
               );
             },
           ),
